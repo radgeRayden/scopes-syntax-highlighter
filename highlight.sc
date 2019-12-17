@@ -335,26 +335,29 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
                                 style = (symbol->style (current-token as Symbol))
                         _ (tokens-walked + 1) (column + (countof (tostring current-token)))
 
-                case 'spice-quote
-                    # spice-quote's anchor is at the actual backtick
-                    if ((line @ column-index) == 96:i8) # ` character
-                        'append result
-                            HighlightedText
-                                content = "`"
-                                style = HighlightingStyle.Keyword
-                        _ (tokens-walked + 1) ((column + 1) as usize)
-                    else
-                        'append result
-                            HighlightedText
-                                content = "spice-quote"
-                                style = HighlightingStyle.Keyword
-                        _ (tokens-walked + 1) (column + (countof (tostring current-token)))
+                pass 'spice-quote
                 pass 'square-list
-                    # FIXME: handle case where "square-list" is spelled out instead of [].
                 pass 'curly-list
-                    # FIXME: handle case where "curly-list" is spelled out instead of {}.
                 do
-                    _ (tokens-walked + 1) (column as usize)
+                    let alias-character =
+                        switch (current-token as Symbol)
+                        case 'spice-quote 96:i8 # `
+                        case 'square-list 91:i8 # [
+                        case 'curly-list 123:i8 # {
+                        default (assert false) 0:i8
+                    # I wanted style to always be "keyword" but then I need to match brackets.
+                    # Maybe next time!
+                    let content style =
+                        if ((line @ column-index) == alias-character)
+                            _ (alias-character as string) HighlightingStyle.Default
+                        else
+                            _ (tostring current-token) HighlightingStyle.Keyword
+
+                    'append result
+                        HighlightedText
+                            content = content
+                            style = style
+                    _ (tokens-walked + 1) (column + (countof content))
                 default
                     'append result
                         HighlightedText
@@ -425,9 +428,9 @@ fn sanitize-string-html (str)
         string-replace __ "`" "&#96;"
         string-replace __ "-" "&#45;"
 
-inline export-html ()
+inline export-html (tokens)
     io-write! "<pre class=\"language-scopes\"><code class=\"language-scopes\">"
-    for token in result
+    for token in tokens
         if (token.style != HighlightingStyle.Default)
             let class =
                 switch token.style
@@ -462,5 +465,9 @@ inline export-html ()
             io-write! (sanitize-string-html token.content)
     io-write! "</code></pre>"
 
-`()
-export-html;
+inline curly-list (...)
+    list ...
+
+`[1]
+`{2}
+export-html result
