@@ -272,10 +272,10 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
             anchor := ('anchor current-token)
             line-number := ('line anchor)
             column := ('column anchor)
+            column-index := (column - 1)
             if (line-number > line-counter)
                 let match-comment? start end = ('match? "^\\s*#" (rslice line last-point))
                 if match-comment?
-                    print (rslice line (last-point - 1))
                     'append result
                         HighlightedText
                             content = (rslice line (last-point - 1))
@@ -311,10 +311,9 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
             if (tokenT == Symbol)
                 switch (current-token as Symbol)
                 case 'sugar-quote
-                    # right before the actual anchor
-                    if ((line @ (column - 1)) == 39:i8) # ' character
+                    if ((line @ column-index) == 39:i8) # ' character
                         # what if it's a quoted list?
-                        if ((line @ column) == 40:i8) # ( character
+                        if ((line @ (column-index + 1)) == 40:i8) # ( character
                             'append result
                                 HighlightedText
                                     content = "'"
@@ -336,8 +335,20 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
                                 style = (symbol->style (current-token as Symbol))
                         _ (tokens-walked + 1) (column + (countof (tostring current-token)))
 
-                pass 'spice-quote
-                    # FIXME: handle case where "spice-quote" is spelled out instead of backtick.
+                case 'spice-quote
+                    # spice-quote's anchor is at the actual backtick
+                    if ((line @ column-index) == 96:i8) # ` character
+                        'append result
+                            HighlightedText
+                                content = "`"
+                                style = HighlightingStyle.Keyword
+                        _ (tokens-walked + 1) ((column + 1) as usize)
+                    else
+                        'append result
+                            HighlightedText
+                                content = "spice-quote"
+                                style = HighlightingStyle.Keyword
+                        _ (tokens-walked + 1) (column + (countof (tostring current-token)))
                 pass 'square-list
                     # FIXME: handle case where "square-list" is spelled out instead of [].
                 pass 'curly-list
@@ -414,7 +425,7 @@ fn sanitize-string-html (str)
         string-replace __ "`" "&#96;"
         string-replace __ "-" "&#45;"
 
-fn export-html ()
+inline export-html ()
     io-write! "<pre class=\"language-scopes\"><code class=\"language-scopes\">"
     for token in result
         if (token.style != HighlightingStyle.Default)
@@ -451,4 +462,5 @@ fn export-html ()
             io-write! (sanitize-string-html token.content)
     io-write! "</code></pre>"
 
-# export-html;
+`()
+export-html;
