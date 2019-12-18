@@ -169,7 +169,7 @@ let number-regexp1 number-regexp2 number-regexp3 =
         # had to split in three parts because it was too big for the engine
         let number-regexp1 =
             .. "^[+-]?"
-                    # no fractional part
+                # no fractional part
                 (..
                     (re-or
                         "\\d+"
@@ -232,73 +232,75 @@ fn symbol->style (symbol)
     else
         HighlightingStyle.Default
 
+enum HighlightingMode
+    Default
+    Comment :
+        offset = i32;
+    MultilineString :
+        offset = i32;
+    OpenBracket # unused for now
+    inline __typecall (cls)
+        this-type.Default;
+
 # now we walk through the actual text
 local result : (Array HighlightedText)
-fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in (lines text)
-    let tokens-skipped comment-state =
-        :: comment-test
-        if comment-state.mid-comment?
-            # skip empty lines
-            if ('match? "^\\s*\\n" line)
-                merge comment-test 0 comment-state
-            # match first non blank character of line
-            let match? start end = ('match? "^\\s*[^\\s]" line)
-            assert match?
-            # need to subtract one because we overmatch
-            if ((end - 1) > comment-state.offset)
-                merge comment-test 0 comment-state
-            # it's another comment!
-            if ((line @ (end - 1)) == 35:i8) # pound character
-                merge comment-test 0
-                    CommentState
-                        mid-comment? = true
-                        offset = (end - 1)
+fold (lines-highlighted tokens-highlighted mode = 0 0 (HighlightingMode.Default)) for line in (lines text)
+    # check if we must break a comment or multiline string
+    inline broke-indentation? (offset starter-pattern)
+        imply starter-pattern string
+        let regexp = (.. "^\\s*(?=[^\\s\\n])(?!" starter-pattern ")")
+        let match? start end = ('match? regexp line)
+        if match?
+            end < offset
         else
-            let match-comment? start end = ('match? "^\\s*#" line)
-            if match-comment?
-                merge comment-test 0
-                    CommentState
-                        mid-comment? = true
-                        offset = (end - 1) # the pound doesn't count!
+            false
 
-        # if we got here, no comment detected so far or comment ended!
-        let comment-state = (CommentState)
-        loop (tokens-walked last-point = 0 1:usize)
-            # check comment
-            let index = (token-offset + tokens-walked)
+    :: skip-line
+    dispatch mode
+    case Comment (offset)
+        if (not (broke-indentation? offset "#"))
+            'append result
+                HighlightedText
+                    content = line
+                    style = HighlightingStyle.Comment
+            merge skip-line
+                lines-highlighted + 1
+                tokens-highlighted
+                HighlightingMode.Comment offset
+    case MultilineString (offset)
+        if (not (broke-indentation? offset "\"{4}"))
+            'append result
+                HighlightedText
+                    content = line
+                    style = HighlightingStyle.String
+            merge skip-line
+                lines-highlighted + 1
+                tokens-highlighted
+                HighlightingMode.MultilineString offset
+    default
+        ;
+
+    let tokens-this-line last-point =
+        loop (tokens-this-line last-point = 0 1:usize)
+            let index = (tokens-highlighted + tokens-this-line)
             if (index >= (countof code))
-                break tokens-walked comment-state
+                break tokens-this-line last-point
             let current-token = (code @ index)
             anchor := ('anchor current-token)
             line-number := ('line anchor)
             column := ('column anchor)
             column-index := (column - 1)
-            if (line-number > line-counter)
-                let match-comment? start end = ('match? "^\\s*#" (rslice line last-point))
-                if match-comment?
-                    'append result
-                        HighlightedText
-                            content = (rslice line (last-point - 1))
-                            style = HighlightingStyle.Comment
-                    break tokens-walked
-                        CommentState
-                            mid-comment? = true
-                            offset = ((last-point + (end - 1)) as i32)
+            line-highlight-point := (lines-highlighted + 1)
 
-                # append rest of line if adequate
-                if (tokens-walked > 0)
-                    # should always have at least a \n remaining!
-                    assert (last-point <= (countof line))
-                    'append result
-                        HighlightedText
-                            content = (rslice line (last-point - 1))
-                            style = HighlightingStyle.Default
+            if (line-number > line-highlight-point)
                 # continue on the next line
-                break tokens-walked comment-state
+                break tokens-this-line last-point
+
             if ('none? current-token)
                 # it seems empty function arg gets a weird anchor so lets just skip it.
-                repeat (tokens-walked + 1) last-point
-            assert (line-counter <= line-number) # did we skip too much outside this loop?
+                repeat (tokens-this-line + 1) last-point
+
+            assert (line-highlight-point <= line-number) # did we skip too much outside this loop?
             # now that we know we're on the right line, we can slice away what we want
             # append whitespace or whatever else there is between last token and current
             if (column > last-point)
@@ -318,7 +320,7 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
                                 HighlightedText
                                     content = "'"
                                     style = HighlightingStyle.Keyword
-                            _ (tokens-walked + 1) ((column + 1) as usize)
+                            _ (tokens-this-line + 1) ((column + 1) as usize)
                         else
                             # FIXME: caution! content could have ended with sugar quote!
                             assert ((index + 1) < (countof code))
@@ -327,13 +329,13 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
                                 HighlightedText
                                     content = (.. "'" (tostring next-token))
                                     style = HighlightingStyle.Symbol
-                            _ (tokens-walked + 2) (column + 1 + (countof (tostring next-token)))
+                            _ (tokens-this-line + 2) (column + 1 + (countof (tostring next-token)))
                     else
                         'append result
                             HighlightedText
                                 content = "sugar-quote"
                                 style = (symbol->style (current-token as Symbol))
-                        _ (tokens-walked + 1) (column + (countof (tostring current-token)))
+                        _ (tokens-this-line + 1) (column + (countof (tostring current-token)))
 
                 pass 'spice-quote
                 pass 'square-list
@@ -357,13 +359,13 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
                         HighlightedText
                             content = content
                             style = style
-                    _ (tokens-walked + 1) (column + (countof content))
+                    _ (tokens-this-line + 1) (column + (countof content))
                 default
                     'append result
                         HighlightedText
                             content = (tostring current-token)
                             style = (symbol->style (current-token as Symbol))
-                    _ (tokens-walked + 1) (column + (countof (tostring current-token)))
+                    _ (tokens-this-line + 1) (column + (countof (tostring current-token)))
             elseif ((tokenT < real) or (tokenT < integer))
                 let line-remainder = (rslice line (column - 1))
                 let match1? start1 end1 = ('match? number-regexp1 line-remainder)
@@ -383,32 +385,69 @@ fold (line-counter token-offset comment-state = 1 0 (CommentState)) for line in 
                     HighlightedText
                         content = (lslice line-remainder number-length)
                         style = HighlightingStyle.Number
-                _ (tokens-walked + 1) (column + number-length)
+                _ (tokens-this-line + 1) (column + number-length)
             elseif (tokenT == string)
-                'append result
-                    HighlightedText
-                        content = (tostring current-token)
-                        style = HighlightingStyle.String
-                _ (tokens-walked + 1) (column + (countof (tostring current-token)))
+                # if it's a multiline string, do nothing and let the code after the loop handle it.
+                if ('match? "^\"{4}" (rslice line (column - 1)))
+                    _ (tokens-this-line + 1) (column as usize)
+                else
+                    'append result
+                        HighlightedText
+                            content = (tostring current-token)
+                            style = HighlightingStyle.String
+                    _ (tokens-this-line + 1) (column + (countof (tostring current-token)))
             else
                 # shouldn't happen
                 assert false ("Unknown token type: " .. (tostring tokenT))
                 _ 0 0:usize
 
-        comment-test ::
-
-    if (tokens-skipped == 0)
-        if comment-state.mid-comment?
-            'append result
-                HighlightedText
-                    content = line
-                    style = HighlightingStyle.Comment
-        else
-            'append result
-                HighlightedText
-                    content = line
-                    style = HighlightingStyle.Default
-    _ (line-counter + 1) (token-offset + tokens-skipped) comment-state
+    # should always have at least a \n remaining?
+    assert (last-point <= (countof line))
+    last-point-index := (last-point - 1)
+    line-remainder := (rslice line last-point-index)
+    # now we append the rest of the line.
+    # check if we didn't start a comment or multiline string.
+    let match-mlstring? __ end-mlstring-preamble = ('match? "\\s*(?=\"{4})" line-remainder)
+    let match-comment? __ end-comment-preamble = ('match? "\\s*(?=#)" line-remainder)
+    # first add the text between last point and comment/string, then those.
+    if match-mlstring?
+        'append result
+            HighlightedText
+                content = (lslice line-remainder end-mlstring-preamble)
+                style = HighlightingStyle.Default
+        'append result
+            HighlightedText
+                content = (rslice line-remainder end-mlstring-preamble)
+                style = HighlightingStyle.String
+        _
+            lines-highlighted + 1
+            tokens-highlighted + tokens-this-line
+            # multiline string offset actually starts after the quotes.
+            HighlightingMode.MultilineString
+                offset =
+                    (last-point-index + (end-mlstring-preamble + 4)) as i32
+    elseif match-comment?
+        'append result
+            HighlightedText
+                content = (lslice line-remainder end-comment-preamble)
+                style = HighlightingStyle.Default
+        'append result
+            HighlightedText
+                content = (rslice line-remainder end-comment-preamble)
+                style = HighlightingStyle.Comment
+        _
+            lines-highlighted + 1
+            tokens-highlighted + tokens-this-line
+            HighlightingMode.Comment
+                offset =
+                    (last-point-index + end-comment-preamble + 1) as i32
+    else
+        'append result
+            HighlightedText
+                content = line-remainder
+                style = HighlightingStyle.Default
+        _ (lines-highlighted + 1) (tokens-highlighted + tokens-this-line) (HighlightingMode.Default)
+    skip-line ::
 
 fn string-replace (str pattern substitution)
     loop (lhs rhs = "" (deref str))
@@ -465,9 +504,4 @@ inline export-html (tokens)
             io-write! (sanitize-string-html token.content)
     io-write! "</code></pre>"
 
-inline curly-list (...)
-    list ...
-
-`[1]
-`{2}
-export-html result
+export-html result;
