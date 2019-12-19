@@ -46,7 +46,7 @@ let number-regexp1 number-regexp2 number-regexp3 =
                     (re-or
                        (number-dot-number "" "\\d")
                        (number-dot-number "0b" bin-digit))
-                   "([eE][+-]\\d+)?"
+                   "(e[+-]\\d+)?"
                    (re-or ":f32" ":f64") "?")
                 "(?=[,'()\\[\\]{} \\n]|$)"
         let number-regexp3 =
@@ -55,7 +55,7 @@ let number-regexp1 number-regexp2 number-regexp3 =
                     (re-or
                        (number-dot-number "0o" oct-digit)
                        (number-dot-number "0x" hex-digit))
-                   "([eE][+-]\\d+)?"
+                   "(e[+-]\\d+)?"
                    (re-or ":f32" ":f64") "?")
                 "(?=[,'()\\[\\]{} \\n]|$)"
         _ number-regexp1 number-regexp2 number-regexp3
