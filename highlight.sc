@@ -62,6 +62,22 @@ let number-regexp1 number-regexp2 number-regexp3 =
 # make regexps constant
 run-stage;
 
+fn strip-ANSI-codes (str)
+    let pattern = "^\\\x1b\\[.+?m"
+    let match? start end = ('match? pattern str)
+    let str =
+        if match?
+            rslice str end
+        else
+            str
+    let pattern = "\\\x1b\\[.+?m$"
+    let match? start end = ('match? pattern str)
+    let str =
+        if match?
+            lslice str start
+        else
+            str
+
 fn flatten-list (l)
     fn flatten-list (old-list new-list)
         returning list
@@ -195,6 +211,7 @@ fn highlight-tokens (tokens text)
         default
             ;
 
+        io-write! line
         let tokens-this-line last-point =
             loop (tokens-this-line last-point = 0 1:usize)
                 let index = (tokens-highlighted + tokens-this-line)
@@ -227,7 +244,8 @@ fn highlight-tokens (tokens text)
 
                 let tokenT = ('typeof current-token)
                 if (tokenT == Symbol)
-                    switch (current-token as Symbol)
+                    current-token as:= Symbol
+                    switch current-token
                     case 'sugar-quote
                         if ((line @ column-index) == 39:i8) # ' character
                             # what if it's a quoted list?
@@ -241,24 +259,25 @@ fn highlight-tokens (tokens text)
                                 # FIXME: caution! content could have ended with sugar quote!
                                 assert ((index + 1) < (countof tokens))
                                 let next-token = (tokens @ (index + 1))
+                                let plaintext-next-token = (strip-ANSI-codes (tostring next-token))
                                 'append result
                                     HighlightedText
-                                        content = (.. "'" (tostring next-token))
+                                        content = (.. "'" plaintext-next-token)
                                         style = HighlightingStyle.Symbol
-                                _ (tokens-this-line + 2) (column + 1 + (countof (tostring next-token)))
+                                _ (tokens-this-line + 2) (column + 1 + (countof plaintext-next-token))
                         else
                             'append result
                                 HighlightedText
                                     content = "sugar-quote"
                                     style = (symbol->style (current-token as Symbol))
-                            _ (tokens-this-line + 1) (column + (countof (tostring current-token)))
+                            _ (tokens-this-line + 1) (column + (countof (strip-ANSI-codes (tostring current-token))))
 
                     pass 'spice-quote
                     pass 'square-list
                     pass 'curly-list
                     do
                         let alias-character =
-                            switch (current-token as Symbol)
+                            switch current-token
                             case 'spice-quote 96:i8 # `
                             case 'square-list 91:i8 # [
                             case 'curly-list 123:i8 # {
@@ -269,7 +288,7 @@ fn highlight-tokens (tokens text)
                             if ((line @ column-index) == alias-character)
                                 _ (alias-character as string) HighlightingStyle.Default
                             else
-                                _ (tostring current-token) HighlightingStyle.Keyword
+                                _ (strip-ANSI-codes (tostring current-token)) HighlightingStyle.Keyword
 
                         'append result
                             HighlightedText
@@ -277,11 +296,12 @@ fn highlight-tokens (tokens text)
                                 style = style
                         _ (tokens-this-line + 1) (column + (countof content))
                     default
+                        let plaintext-token = (strip-ANSI-codes (tostring current-token))
                         'append result
                             HighlightedText
-                                content = (tostring current-token)
-                                style = (symbol->style (current-token as Symbol))
-                        _ (tokens-this-line + 1) (column + (countof (tostring current-token)))
+                                content = plaintext-token
+                                style = (symbol->style current-token)
+                        _ (tokens-this-line + 1) (column + (countof plaintext-token))
                 elseif ((tokenT < real) or (tokenT < integer))
                     let line-remainder = (rslice line (column - 1))
                     let match1? start1 end1 = ('match? number-regexp1 line-remainder)
@@ -303,6 +323,7 @@ fn highlight-tokens (tokens text)
                             style = HighlightingStyle.Number
                     _ (tokens-this-line + 1) (column + number-length)
                 elseif (tokenT == string)
+                    current-token as:= string
                     # if it's a multiline string, do nothing and let the code after the loop handle it.
                     if ('match? "^\"{4}" (rslice line (column - 1)))
                         _ (tokens-this-line + 1) (column as usize)
