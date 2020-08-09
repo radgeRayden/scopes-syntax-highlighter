@@ -1,4 +1,5 @@
 using import itertools
+using import chaining
 using import .highlight
 using import Array
 
