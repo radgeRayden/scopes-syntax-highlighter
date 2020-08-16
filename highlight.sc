@@ -211,7 +211,6 @@ fn highlight-tokens (tokens text)
         default
             ;
 
-        io-write! line
         let tokens-this-line last-point =
             loop (tokens-this-line last-point = 0 1:usize)
                 let index = (tokens-highlighted + tokens-this-line)
